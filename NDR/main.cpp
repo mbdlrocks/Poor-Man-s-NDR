@@ -358,99 +358,55 @@ void process_packet(const char* buffer, ssize_t size)
 
 int main(int argc, char* argv[]) 
 {
-    // --- Arguments ---
-
-    if (argc != 13) 
-    {
-        std::cerr << "Error: All arguments -m, -t, -n, -c, -T, -U must be provided.\n";
-        std::cerr << "Usage: " << argv[0] 
-                  << " -m min_flows -t threshold -n nb_consecutive -c consecutive_flag -T tcp_flag -U udp_flag\n";
+    if (argc < 15) {
+        std::cerr << "Usage: " << argv[0]
+                  << " -i interface -m min_flows -t threshold -n nb_consecutive "
+                  << "-c consecutive_flag -T tcp_flag -U udp_flag\n";
         return 1;
     }
 
-    // --- lire les arguments ---
-    
     int opt;
     bool tcp_flag_set = false, udp_flag_set = false;
-    
-    while ((opt = getopt(argc, argv, "m:t:n:c:T:U:")) != -1) 
+    std::string interface_name;
+
+    // --- Arguments ---
+
+    while ((opt = getopt(argc, argv, "i:m:t:n:c:T:U:")) != -1) 
     {
         switch (opt) {
-            case 'm':
-                RNN_MIN_FLOWS = std::stoi(optarg); // nb minimum de flux a analyser avant classification
-                break;
-            case 't':
-                RNN_THRESHOLD = std::stod(optarg); // seuil pour activation RNN -> trigger
-                break;
-            case 'n':
-                RNN_NBCONSECUTIVES = std::stoi(optarg); // nb de trigger consecutif pour lever une alerte
-                break;
-            case 'c':
-                RNN_ISCONSECUTIVES = (std::stoi(optarg) != 0); // triggers consecutifs ou cumulés
-                break;
-            case 'T':
-                CAPTURE_TCP = (std::stoi(optarg) != 0); // capturer TCP
-                tcp_flag_set = true;
-                break;
-            case 'U':
-                CAPTURE_UDP = (std::stoi(optarg) != 0); // capturer UDP
-                udp_flag_set = true;
-                break;
+            case 'i': interface_name = optarg; break;
+            case 'm': RNN_MIN_FLOWS = std::stoi(optarg); break;
+            case 't': RNN_THRESHOLD = std::stod(optarg); break;
+            case 'n': RNN_NBCONSECUTIVES = std::stoi(optarg); break;
+            case 'c': RNN_ISCONSECUTIVES = (std::stoi(optarg) != 0); break;
+            case 'T': CAPTURE_TCP = (std::stoi(optarg) != 0); tcp_flag_set = true; break;
+            case 'U': CAPTURE_UDP = (std::stoi(optarg) != 0); udp_flag_set = true; break;
             default:
-                std::cerr << "Usage: " << argv[0] 
-                          << " -m min_flows -t threshold -n nb_consecutive -c consecutive_flag -T tcp_flag -U udp_flag\n";
+                std::cerr << "Usage: " << argv[0]
+                          << " -i interface -m min_flows -t threshold -n nb_consecutive "
+                          << "-c consecutive_flag -T tcp_flag -U udp_flag\n";
                 return 1;
         }
     }
 
-
-    // --- Au moins une options parmis UDP/TCP doit etre selectionnee ---
-
-    if (!tcp_flag_set || !udp_flag_set) 
-    {
-        std::cerr << "Error: Both -T and -U flags must be provided (0 or 1).\n";
+    if (interface_name.empty()) {
+        std::cerr << "Error: You must specify a network interface with -i\n";
         return 1;
     }
 
-    if (!CAPTURE_TCP && !CAPTURE_UDP) 
-    {
+    if (!tcp_flag_set || !udp_flag_set) {
+        std::cerr << "Error: Both -T and -U flags must be provided.\n";
+        return 1;
+    }
+
+    if (!CAPTURE_TCP && !CAPTURE_UDP) {
         std::cerr << "Error: At least one of TCP (-T 1) or UDP (-U 1) must be enabled.\n";
         return 1;
     }
 
-    // --- Recap les paramètres de la sonde avant refresh ---
+    std::cout << "[i] Using interface: " << interface_name << "\n";
 
-    std::cout << "[i] Using parameters: MIN_FLOWS=" << RNN_MIN_FLOWS
-              << ", THRESHOLD=" << RNN_THRESHOLD
-              << ", NBCONSECUTIVES=" << RNN_NBCONSECUTIVES
-              << ", ISCONSECUTIVES=" << RNN_ISCONSECUTIVES
-              << ", CAPTURE_TCP=" << CAPTURE_TCP
-              << ", CAPTURE_UDP=" << CAPTURE_UDP
-              << "\n";
-
-    // --- Intercept CTRL+C ---
-
-    signal(SIGINT, handle_sigint);
-
-    // --- Initialisation raw sockets ---
-
-    int tcp_sock = -1, udp_sock = -1;
-    char buffer[BUF_SIZE];
-    if (CAPTURE_TCP) 
-    {
-        tcp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
-        if (tcp_sock < 0) { perror("TCP socket"); return 1; }
-    }
-    if (CAPTURE_UDP) 
-    {
-        udp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
-        if (udp_sock < 0) { perror("UDP socket"); return 1; }
-    }
-
-    std::cout << "[i] Flow Tracker started (Ctrl+C to stop)...\n";
-
-    // --- Initalisation du RNN a partir du fichier TorchScript "rnn_trace.pt" ---
-
+    // --- Initialisation du RNN ---
     try {
         rnn_model = torch::jit::load("rnn_trace.pt");
         rnn_model.eval();
@@ -460,33 +416,76 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // --- Capture des packets ---
+    // --- Initialisation de capture via libpcap ---
 
-    while (true) 
-    {
-        fd_set fds;
-        FD_ZERO(&fds);
-        int maxfd = -1;
-
-        if (CAPTURE_TCP) { FD_SET(tcp_sock, &fds); maxfd = std::max(maxfd, tcp_sock); }
-        if (CAPTURE_UDP) { FD_SET(udp_sock, &fds); maxfd = std::max(maxfd, udp_sock); }
-        int ret = select(maxfd + 1, &fds, nullptr, nullptr, nullptr);
-        if (ret < 0) { perror("select"); continue; }
-
-        if (CAPTURE_TCP && FD_ISSET(tcp_sock, &fds)) 
-        {
-            ssize_t n = recv(tcp_sock, buffer, BUF_SIZE, 0);
-            if (n > 0) process_packet(buffer, n);
-        }
-
-        if (CAPTURE_UDP && FD_ISSET(udp_sock, &fds)) 
-        {
-            ssize_t n = recv(udp_sock, buffer, BUF_SIZE, 0);
-            if (n > 0) process_packet(buffer, n);
-        }
+    char errbuf[PCAP_ERRBUF_SIZE];
+    pcap_t* handle = pcap_open_live(interface_name.c_str(), 65535, 1, 1000, errbuf);
+    if (!handle) {
+        std::cerr << "Error opening device " << interface_name << ": " << errbuf << "\n";
+        return 1;
     }
 
-    if (CAPTURE_TCP) close(tcp_sock);
-    if (CAPTURE_UDP) close(udp_sock);
+    // --- Check type liaison => si lo ne pas filtrer ---
+
+    int linktype = pcap_datalink(handle);
+    std::cout << "[i] Link-layer type: " << linktype << "\n";
+    if (interface_name != "lo" && interface_name != "any") {
+        std::string filter_exp;
+        if (CAPTURE_TCP && CAPTURE_UDP)
+            filter_exp = "tcp or udp";
+        else if (CAPTURE_TCP)
+            filter_exp = "tcp";
+        else
+            filter_exp = "udp";
+
+        struct bpf_program fp;
+        if (pcap_compile(handle, &fp, filter_exp.c_str(), 0, PCAP_NETMASK_UNKNOWN) == -1) {
+            std::cerr << "Error compiling filter: " << pcap_geterr(handle) << "\n";
+            pcap_close(handle);
+            return 1;
+        }
+        if (pcap_setfilter(handle, &fp) == -1) {
+            std::cerr << "Error setting filter: " << pcap_geterr(handle) << "\n";
+            pcap_freecode(&fp);
+            pcap_close(handle);
+            return 1;
+        }
+        pcap_freecode(&fp);
+    } else {
+        std::cout << "[i] Skipping BPF filter for " << interface_name << "\n";
+    }
+
+    signal(SIGINT, handle_sigint);
+    std::cout << "[i] Starting packet capture on " << interface_name << "...\n";
+
+    // --- Capture ---
+    
+    struct pcap_pkthdr* header;
+    const u_char* data;
+    int res;
+
+    while ((res = pcap_next_ex(handle, &header, &data)) >= 0) {
+        if (res == 0) continue; // timeout
+
+        const u_char* ip_start = data;
+        if (linktype == DLT_NULL) {
+            ip_start += 4;      
+        } else if (linktype == DLT_LINUX_SLL) {
+            ip_start += 16;     
+        } 
+        else if (linktype == DLT_EN10MB) {
+            ip_start += 14;
+        }
+
+        ssize_t ip_len = header->caplen - (ip_start - data);
+        process_packet((const char*)ip_start, ip_len);
+    }
+
+    if (res == -1) {
+        std::cerr << "Error reading packet: " << pcap_geterr(handle) << "\n";
+    }
+
+    pcap_close(handle);
+    std::cout << "[i] Bye!\n";
     return 0;
 }

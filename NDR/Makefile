@@ -1,7 +1,7 @@
 LIBTORCH = ./libtorch
 CXX := g++
 CXXFLAGS := -std=c++17 -O2 -Iincludes -I$(LIBTORCH)/include -I$(LIBTORCH)/include/torch/csrc/api/include
-LDFLAGS := -L$(LIBTORCH)/lib -ltorch -ltorch_cpu -lc10 -lpthread -ldl -lm -Wl,-rpath,$(LIBTORCH)/lib
+LDFLAGS := -L$(LIBTORCH)/lib -lpcap -ltorch -ltorch_cpu -lc10 -lpthread -ldl -lm -Wl,-rpath,$(LIBTORCH)/lib
 TARGET := flowtracker
 SRC := main.cpp
 

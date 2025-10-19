@@ -12,7 +12,7 @@ import random
 
 HOST = '127.0.0.1'
 PORT = 9999
-INTERVAL = 0.5          
+INTERVAL = 1          
 PAYLOAD_SIZE = 64       
 EPHEMERAL_LO = 49152
 EPHEMERAL_HI = 65535
