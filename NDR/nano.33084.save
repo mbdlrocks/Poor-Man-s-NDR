@@ -1,2 +1,0 @@
- 9454  sudo timedatectl set-ntp false
- 9455  sudo timedatectl set-time '2015-12-05'
