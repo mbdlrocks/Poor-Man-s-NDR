@@ -100,3 +100,11 @@ The interface is a basic terminal UI (see below) where the first pannel describe
 ## Future works
 
 I'll work on the Windows version soon. Meanwhile, just snap this on raspberry pi connected to you router and observe what's going on. 
+
+## Examples
+
+Below are some screenshot of beacon detection for CobaltStrike or Havoc C2. 
+
+![detecting cobaltstrike](Fig/cs.png)
+![detecting havoc](Fig/havoc.png)
+
