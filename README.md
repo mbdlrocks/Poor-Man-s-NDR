@@ -21,10 +21,12 @@ The NDR is already compiled under `NDR/flowtracker`. If you wish to recompile it
 To use the program `flowtracker`, you have to specify the following command line arguments: 
 
 ```commandline
-./flowtracker -m min_flows -t threshold -n nb_consecutive -c consecutive_flag -T tcp_flag -U udp_flag
+./flowtracker -i <interface> -m <min_flows> -t <threshold> -n <nb_consecutive> -c <consecutive_flag> -T <tcp_flag> -U <udp_flag>
 ```
 
 where: 
+
+\- `interface` is the network interface to use for capture, use `any` to monitor all interfaces.
 
 \- `min_flows` is the minimum number of flows to collect in a connection before doing the behavioural analysis (default=`4`)
 
